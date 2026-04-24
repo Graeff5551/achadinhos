@@ -95,10 +95,12 @@ export default function Checkout() {
       
       let detail = "Erro desconhecido";
       if (error.response?.data) {
-        if (typeof error.response.data === 'object') {
-          detail = error.response.data.detail || error.response.data.error || JSON.stringify(error.response.data);
+        const data = error.response.data;
+        if (typeof data === 'object') {
+          // Trata o formato específico da C7: { error: { message: "..." } } ou { message: "..." }
+          detail = data.error?.message || data.message || data.detail || JSON.stringify(data);
         } else {
-          detail = error.response.data;
+          detail = String(data);
         }
       } else {
         detail = error.message;

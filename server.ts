@@ -123,15 +123,26 @@ function signRequest(apiSecret: string, body: any) {
     } catch (error: any) {
       const errorData = error.response?.data;
       const errorStatus = error.response?.status;
-      const errorMsg = errorData ? JSON.stringify(errorData) : error.message;
+      
+      // Tenta extrair a mensagem de erro da C7
+      const c7Message = errorData?.error?.message || errorData?.message || JSON.stringify(errorData);
+      const errorMsg = errorData ? c7Message : error.message;
       
       console.error(`[PIX ERROR] Status: ${errorStatus} | Msg: ${errorMsg}`);
 
       // Se for erro de autenticação na API externa
       if (errorStatus === 401 || errorStatus === 403) {
         return res.status(errorStatus).json({ 
-          error: 'Erro de Autenticação na C7. Verifique se suas chaves estão corretas e ativas.',
-          details: errorMsg 
+          error: 'Erro de Autenticação na C7. Verifique se suas chaves estão corretas.',
+          detail: errorMsg 
+        });
+      }
+
+      // Se for erro de validação (como o HTTPS anterior)
+      if (errorStatus === 422) {
+        return res.status(422).json({
+          error: 'Erro de validação nos dados enviados.',
+          detail: errorMsg
         });
       }
 
