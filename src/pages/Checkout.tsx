@@ -90,9 +90,10 @@ export default function Checkout() {
       };
       await addDoc(collection(db, 'orders'), orderData);
       setStep(2);
-    } catch (error) {
+    } catch (error: any) {
       console.error("Erro ao processar pedido:", error);
-      alert("Sentimos muito, houve um probleminha. Por favor, tente novamente em alguns instantes.");
+      const detail = error.response?.data?.error || error.message || "Erro desconhecido";
+      alert(`⚠️ Erro no Pagamento: ${detail}\n\nVerifique se as chaves da C7 estão corretas nas Variáveis de Ambiente da Vercel.`);
     } finally {
       setLoading(false);
     }
