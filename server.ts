@@ -53,25 +53,29 @@ function signRequest(apiSecret: string, body: any) {
         });
       }
 
-      // 1. URL Final - Garantindo que não haja duplicação de /v2 e apontando para o endpoint estável
-      const cleanBase = BASE_URL.replace(/\/+$/, '').replace(/\/v2$/, '');
-      const url = `${cleanBase}/v2/payment/create`;
+      // 1. URL Final - Construção segura para Vercel
+      // Extrai apenas o domínio (ex: api.carteirado7.com) e fixa o path correto
+      const host = BASE_URL.replace('https://', '').replace('http://', '').split('/')[0];
+      const url = `https://${host}/v2/payment/create`;
       
-      console.log(`[C7] Chamando URL final: ${url}`);
+      console.log(`[C7] URL Final: ${url}`);
       
-      // 2. Payload Padrão (camelCase) - Conforme o que funcionava anteriormente
+      // 2. Payload - Seguindo estritamente a documentação da imagem
       const externalId = `PEDIDO_${Date.now()}`;
-      const payload = {
+      const payload: any = {
         amount: Number(parseFloat(String(amount)).toFixed(2)),
         externalId: externalId,
         callbackUrl: `https://${req.get('host')}/api/webhook/pix`,
-        description: `Pedido ${externalId}`,
-        payer: {
-          name: (payer?.name || 'Cliente').normalize('NFD').replace(/[\u0300-\u036f]/g, "").substring(0, 60),
-          document: (payer?.cpf || '00000000000').replace(/\D/g, ''),
-          email: (payer?.email || 'contato@cliente.com').substring(0, 60)
-        }
+        description: `Pedido ${externalId}`
       };
+
+      // Adiciona o payer se disponível, formatando o CPF/CNPJ
+      if (payer) {
+        payload.payer = {
+          name: (payer.name || 'Cliente').normalize('NFD').replace(/[\u0300-\u036f]/g, "").substring(0, 60),
+          document: (payer.cpf || payer.document || '00000000000').replace(/\D/g, '').substring(0, 14)
+        };
+      }
 
       const bodyString = JSON.stringify(payload);
       const timestamp = Math.floor(Date.now() / 1000).toString();
