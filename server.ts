@@ -53,16 +53,14 @@ function signRequest(apiSecret: string, body: any) {
         });
       }
 
-      // 1. URL Final - Garantindo o caminho correto para criação de PIX
-      // O erro 404 indica que /v2/payment/create pode estar incorreto. 
-      // Tentaremos /v2/pix/create que é o padrão documentado em versões recentes da C7.
+      // 1. URL Final - Restaurando para o padrão que operava corretamente
       const baseUrl = BASE_URL.replace(/\/+$/, '').replace(/\/v2$/, '');
-      const url = `${baseUrl}/v2/pix/create`;
+      const url = `${baseUrl}/v2/payment/create`;
       
-      console.log(`[C7] Tentando endpoint: ${url}`);
+      console.log(`[C7] Endpoint Restaurado: ${url}`);
       
-      // 2. Payload Sanitizado
-      const externalId = `ORDR_${Date.now()}`;
+      // 2. Payload Padrão (camelCase)
+      const externalId = `PEDIDO_${Date.now()}`;
       const payload = {
         amount: Number(parseFloat(String(amount)).toFixed(2)),
         externalId: externalId,
@@ -83,9 +81,7 @@ function signRequest(apiSecret: string, body: any) {
         .update(timestamp + '.' + bodyString)
         .digest('hex');
 
-      console.log(`[C7] Chamando Endpoint: ${url}`);
-
-      // 3. Requisição com Bearer Obrigatório
+      // 3. Requisição
       const response = await axios.post(url, bodyString, {
         headers: {
           'Authorization': `Bearer ${API_KEY.replace('Bearer ', '').trim()}`,
@@ -99,11 +95,15 @@ function signRequest(apiSecret: string, body: any) {
       const data = response.data;
       const payment = data.payment || data;
 
-      if (payment && (payment.pixCopiaECola || payment.qrCodeBase64)) {
+      // Suporte a formatos de resposta estáveis
+      const qrCode = payment.pixCopiaECola || payment.qrcode_text || payment.pix_copia_e_cola;
+      const qrImage = payment.qrCodeBase64 || payment.qrcode_url || payment.qrcode_base64;
+
+      if (qrCode || qrImage) {
         return res.json({
-          qrcode_text: payment.pixCopiaECola || payment.qrcode_text,
-          qrcode: payment.qrCodeBase64 || payment.qrcode_url,
-          txid: payment.id || payment.txid || externalId,
+          qrcode_text: qrCode,
+          qrcode: qrImage,
+          txid: payment.id || payment.txid || payment.external_id || externalId,
           is_real: true
         });
       } else {
