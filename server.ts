@@ -48,15 +48,19 @@ function signRequest(apiSecret: string, body: any) {
         throw new Error('C7_API_KEY ou C7_CHAVE_SECRETA não configuradas. Verifique a aba de Variáveis de Ambiente na Vercel.');
       }
 
-      // Garantir URL correta: https://api.carteirado7.com/v2/payment/create
-      let url = BASE_URL;
-      if (url.endsWith('/')) url = url.slice(0, -1);
+      // Ajuste inteligente da URL para evitar duplicidade de /v2
+      let cleanBaseUrl = BASE_URL.replace(/\/+$/, ''); // Remove barras no final
+      let url = '';
       
-      if (!url.endsWith('/payment/create')) {
-        url = url.endsWith('/v2') ? `${url}/payment/create` : `${url}/v2/payment/create`;
+      if (cleanBaseUrl.endsWith('/payment/create')) {
+        url = cleanBaseUrl;
+      } else if (cleanBaseUrl.endsWith('/v2')) {
+        url = `${cleanBaseUrl}/payment/create`;
+      } else {
+        url = `${cleanBaseUrl}/v2/payment/create`;
       }
 
-      console.log(`[PIX DEBUG] URL: ${url}`);
+      console.log(`[PIX DEBUG] URL Final: ${url}`);
 
       // Payload seguindo o padrão C7 v2
       const host = req.get('host') || 'achadinhos-ovlj.vercel.app';
