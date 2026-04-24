@@ -63,27 +63,17 @@ function signRequest(apiSecret: string, body: any) {
       }
       const url = `${cleanBaseUrl}/v2/payment/create`;
       
-      // 2. Payload Minimalista e Sanitizado (Seguindo estritamente a documentação)
+      // 2. Payload Minimalista (Seguindo estritamente a captura de tela da documentação)
       const host = req.get('host') || 'achadinhos-ovlj.vercel.app';
       const callback = `https://${host}/api/webhook/pix`;
 
-      // Sanitização agressiva para evitar erros de encoding na assinatura
-      const sanitizedName = (payer?.name || 'Cliente')
-        .normalize('NFD')
-        .replace(/[\u0300-\u036f]/g, "")
-        .replace(/[^a-zA-Z0-9 ]/g, "")
-        .trim();
+      // Sanitização básica
+      const sanitizedExternalId = `ID${Date.now()}`;
 
       const payload = {
         amount: Number(parseFloat(String(amount)).toFixed(2)),
-        externalId: `ORDER${Date.now()}`,
         callbackUrl: callback,
-        description: `Pedido ${sanitizedName}`.substring(0, 100),
-        payer: {
-          name: sanitizedName.substring(0, 60),
-          document: (payer?.cpf || '').replace(/\D/g, ''),
-          email: (payer?.email || 'contato@cliente.com').substring(0, 60)
-        }
+        externalId: sanitizedExternalId
       };
 
       const bodyString = JSON.stringify(payload);
@@ -95,31 +85,38 @@ function signRequest(apiSecret: string, body: any) {
         .update(timestamp + '.' + bodyString)
         .digest('hex');
 
-      // 3. Requisição (Timeout de 8s)
+      console.log(`[C7 DEBUG] URL: ${url}`);
+      console.log(`[C7 DEBUG] Payload: ${bodyString}`);
+      console.log(`[C7 DEBUG] Timestamp: ${timestamp}`);
+
+      // 3. Requisição (Timeout de 7s para evitar Vercel 504/500)
       const response = await axios.post(url, bodyString, {
         headers: {
-          'Authorization': `Bearer ${API_KEY.replace('Bearer ', '')}`,
+          'Authorization': `Bearer ${API_KEY.replace('Bearer ', '').trim()}`,
           'Content-Type': 'application/json',
           'X-C7-Timestamp': timestamp,
           'X-C7-Signature': signature
         },
-        timeout: 8000
+        timeout: 7000
       });
 
       const data = response.data;
-      // Trata a estrutura retornada pela C7 { ok: true, payment: { ... } }
-      const p = data.payment || data;
+      console.log(`[C7 DEBUG] Success Data: ${JSON.stringify(data).substring(0, 100)}...`);
 
-      if (data.ok === true || (p && (p.pixCopiaECola || p.qrCodeBase64))) {
+      // Suporte a diferentes formatos de resposta
+      const p = data.payment || data;
+      const qrCode = p.pixCopiaECola || p.qrcode_text || p.qrcodeText;
+      const qrImage = p.qrCodeBase64 || p.qrcode_url || p.qrcodeUrl;
+
+      if (qrCode || qrImage) {
         return res.json({
-          qrcode_text: p.pixCopiaECola || p.qrcode_text,
-          qrcode: p.qrCodeBase64 || p.qrcode_url,
-          txid: p.id || p.txid,
+          qrcode_text: qrCode,
+          qrcode: qrImage,
+          txid: p.id || p.txid || p.externalId,
           is_real: true
         });
       } else {
-        console.error('[C7 ERROR] Resposta sem dados esperados:', JSON.stringify(data));
-        throw new Error('A API C7 não retornou um PIX válido.');
+        throw new Error('A API C7 respondeu "OK" mas não enviou o QR Code.');
       }
 
     } catch (error: any) {
