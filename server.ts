@@ -45,56 +45,42 @@ function signRequest(apiSecret: string, body: any) {
 
     try {
       if (!API_KEY || !SECRET_KEY) {
-        throw new Error('C7_API_KEY ou C7_CHAVE_SECRETA não configuradas. Verifique a aba de Variáveis de Ambiente na Vercel.');
+        return res.status(401).json({ error: 'Configuração ausente: Verifique C7_API_KEY e C7_CHAVE_SECRETA na Vercel.' });
       }
 
-      // Ajuste inteligente da URL para evitar duplicidade de /v2
-      let cleanBaseUrl = BASE_URL.replace(/\/+$/, ''); // Remove barras no final
-      let url = '';
+      // 1. URL Final
+      const cleanBaseUrl = BASE_URL.replace(/\/+$/, '');
+      const url = cleanBaseUrl.endsWith('/v2') ? `${cleanBaseUrl}/payment/create` : `${cleanBaseUrl}/v2/payment/create`;
       
-      if (cleanBaseUrl.endsWith('/payment/create')) {
-        url = cleanBaseUrl;
-      } else if (cleanBaseUrl.endsWith('/v2')) {
-        url = `${cleanBaseUrl}/payment/create`;
-      } else {
-        url = `${cleanBaseUrl}/v2/payment/create`;
-      }
+      console.log(`[PIX] URL: ${url}`);
 
-      console.log(`[PIX DEBUG] URL Final: ${url}`);
-
-      // Payload seguindo o padrão C7 v2
+      // 2. Payload Simplificado e Robusto
+      const protocol = 'https'; // Forçamos HTTPS porque a C7 exige para o callbackUrl
       const host = req.get('host') || 'achadinhos-ovlj.vercel.app';
-      const protocol = req.headers['x-forwarded-proto'] || 'https';
-      
-      const payload: any = {
-        amount: Number(parseFloat(String(amount)).toFixed(2)), // Garantir formato decimal
-        externalId: `ORD${Date.now()}${Math.floor(Math.random() * 100)}`,
-        description: (description || 'Pedido Achadinhos Baby').substring(0, 100),
-        callbackUrl: `${protocol}://${host}/api/webhook/pix`
+      const callback = `${protocol}://${host}/api/webhook/pix`;
+
+      const payload = {
+        amount: Number(parseFloat(String(amount)).toFixed(2)),
+        externalId: `ORDER_${Date.now()}`,
+        description: 'Pedido Achadinhos Baby',
+        callbackUrl: callback,
+        payer: {
+          name: (payer?.name || 'Cliente').substring(0, 60),
+          document: (payer?.cpf || '').replace(/\D/g, ''),
+          email: (payer?.email || 'contato@cliente.com').substring(0, 60)
+        }
       };
-      
-      // Adicionar payer se disponível na requisição
-      if (payer) {
-        payload.payer = {
-          name: (payer.name || 'Cliente').substring(0, 100),
-          document: (payer.cpf || '').replace(/\D/g, ''),
-          email: (payer.email || '').substring(0, 100)
-        };
-      }
 
       const bodyString = JSON.stringify(payload);
       const timestamp = Math.floor(Date.now() / 1000).toString();
       
-      console.log(`[PIX DEBUG] Gerando assinatura para payload de ${bodyString.length} bytes`);
-
-      // Assinatura: HMAC-SHA256(api_secret, timestamp + "." + body)
+      // Assinatura HMAC-SHA256
       const signature = crypto
         .createHmac('sha256', SECRET_KEY)
         .update(timestamp + '.' + bodyString)
         .digest('hex');
 
-      console.log(`[PIX DEBUG] Enviando para: ${url}`);
-
+      // 3. Requisição
       const response = await axios.post(url, bodyString, {
         headers: {
           'Authorization': `Bearer ${API_KEY}`,
@@ -102,42 +88,50 @@ function signRequest(apiSecret: string, body: any) {
           'X-C7-Timestamp': timestamp,
           'X-C7-Signature': signature
         },
-        timeout: 8000 // 8 segundos para dar tempo de retornar o Pix de teste antes da Vercel dar timeout
+        timeout: 12000
       });
 
       const data = response.data;
-      console.log('[PIX DEBUG] Resposta da API:', JSON.stringify(data));
+      console.log('[PIX SUCCESS] API respondendo');
 
-      if ((data.ok || data.payment) && (data.payment?.pixCopiaECola || data.pixCopiaECola)) {
-        const p = data.payment || data;
+      // Alguns ambientes retornam o objeto payment, outros retornam os dados na raiz
+      const p = data.payment || data;
+
+      if (p && (p.pixCopiaECola || p.qrCodeBase64 || p.qrcode_url)) {
         return res.json({
           qrcode_text: p.pixCopiaECola,
           qrcode: p.qrCodeBase64 || p.qrcode_url,
-          txid: p.id || p.txid,
+          txid: p.id || p.txid || p.txID,
           is_real: true
         });
       } else {
-        const errorDetail = data.message || data.error || 'Resposta incompleta da API';
-        throw new Error(errorDetail);
+        console.error('[PIX ERROR] Estrutura de resposta inválida:', JSON.stringify(data));
+        throw new Error('A API não retornou os dados do PIX esperados.');
       }
 
     } catch (error: any) {
-      const errorMsg = error.response?.data?.message || error.response?.data?.error || error.message;
-      console.error('[PIX ERROR]', errorMsg);
-      if (error.response?.data) console.log('[PIX ERROR DATA]', JSON.stringify(error.response.data));
+      const errorData = error.response?.data;
+      const errorStatus = error.response?.status;
+      const errorMsg = errorData ? JSON.stringify(errorData) : error.message;
       
-      // FALLBACK SEGURO: Se as chaves na Vercel estiverem erradas ou a API falhar,
-      // mostramos um PIX de teste para o fluxo do usuário não travar totalmente.
-      // AVISE AO USUÁRIO: Para o PIX ser REAL, as chaves na Vercel devem estar 100% corretas.
-      const fakePixText = "00020126360014BR.GOV.BCB.PIX0114+5511999999999520400005303986540510.005802BR5913AchadinhosB6009SaoPaulo62070503***6304E2B1";
-      const fakeQrCode = `https://api.qrserver.com/v1/create-qr-code/?size=250x250&data=${encodeURIComponent(fakePixText)}`;
-      
-      res.json({
-        qrcode: fakeQrCode,
-        qrcode_text: fakePixText,
-        txid: 'FALLBACK_' + Date.now(),
+      console.error(`[PIX ERROR] Status: ${errorStatus} | Msg: ${errorMsg}`);
+
+      // Se for erro de autenticação na API externa
+      if (errorStatus === 401 || errorStatus === 403) {
+        return res.status(errorStatus).json({ 
+          error: 'Erro de Autenticação na C7. Verifique se suas chaves estão corretas e ativas.',
+          details: errorMsg 
+        });
+      }
+
+      // Fallback amigável
+      const fallbackMsg = "00020126360014BR.GOV.BCB.PIX0114+5511999999999520400005303986540510.005802BR5913AchadinhosB6009SaoPaulo62070503***6304E2B1";
+      return res.json({
+        qrcode_text: fallbackMsg,
+        qrcode: `https://api.qrserver.com/v1/create-qr-code/?size=250x250&data=${encodeURIComponent(fallbackMsg)}`,
+        txid: 'DEV_FALLBACK_' + Date.now(),
         is_fallback: true,
-        error_detail: errorMsg
+        error_info: errorMsg
       });
     }
   });
