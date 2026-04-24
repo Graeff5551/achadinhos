@@ -102,11 +102,13 @@ export default function Checkout() {
         } else {
           detail = String(data);
         }
+      } else if (error.message === "Network Error") {
+        detail = "Erro de conexão com o servidor. Verifique se o servidor está rodando.";
       } else {
-        detail = error.message;
+        detail = typeof error === 'string' ? error : (error.message || JSON.stringify(error));
       }
 
-      alert(`⚠️ Erro no Pagamento:\n${detail}\n\nVerifique se as chaves da C7 estão corretas e se você fez o 'Redeploy' na Vercel.`);
+      alert(`⚠️ Erro no Pagamento:\n${detail}\n\nSe estiver na Vercel: Verifique se as chaves da C7 estão corretas nas Variáveis de Ambiente e se você fez o 'Redeploy'.`);
     } finally {
       setLoading(false);
     }

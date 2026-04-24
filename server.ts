@@ -71,7 +71,7 @@ function signRequest(apiSecret: string, body: any) {
 
       const payload = {
         amount: Number(parseFloat(String(amount)).toFixed(2)),
-        externalId: String(Date.now()), // Simplificado para apenas números
+        externalId: `ACH_${Date.now()}_${Math.floor(Math.random() * 1000)}`,
         description: 'Pedido Achadinhos Baby',
         callbackUrl: callback,
         payer: {
@@ -90,15 +90,15 @@ function signRequest(apiSecret: string, body: any) {
         .update(timestamp + '.' + bodyString)
         .digest('hex');
 
-      // 3. Requisição
+      // 3. Requisição (Timeout reduzido para 8s para evitar erro 500 da Vercel)
       const response = await axios.post(url, bodyString, {
         headers: {
-          'Authorization': `Bearer ${API_KEY}`,
+          'Authorization': API_KEY.startsWith('Bearer') ? API_KEY : `Bearer ${API_KEY}`,
           'Content-Type': 'application/json',
           'X-C7-Timestamp': timestamp,
           'X-C7-Signature': signature
         },
-        timeout: 15000
+        timeout: 8000
       });
 
       const data = response.data;
