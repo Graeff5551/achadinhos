@@ -36,9 +36,9 @@ function signRequest(apiSecret: string, body: any) {
 
   // Endpoint para criação de PIX via Carteira do 7
   app.post('/api/payment/pix', async (req, res) => {
-    const { amount, description, payer } = req.body;
+    const { amount, payer } = req.body;
     
-    // Variáveis configuradas na Vercel pelo usuário (Extraídas da captura de tela enviada)
+    // Configurações extraídas do ambiente Vercel
     const BASE_URL = (process.env.URL_BASE_C7 || 'https://api.carteirado7.com').trim();
     const API_KEY = (process.env.C7_API_KEY || '').trim();
     const SECRET_KEY = (process.env.C7_CHAVE_SECRETA || '').trim();
@@ -46,39 +46,29 @@ function signRequest(apiSecret: string, body: any) {
     try {
       // Diagnóstico de Chaves
       if (!API_KEY || !SECRET_KEY) {
-        const missing = [];
-        if (!API_KEY) missing.push('C7_API_KEY');
-        if (!SECRET_KEY) missing.push('C7_CHAVE_SECRETA');
-        
-        console.error(`[C7] Missing Keys: ${missing.join(', ')}`);
+        console.error('[C7] Chaves não configuradas no Ambiente.');
         return res.status(401).json({ 
           error: 'Configuração Incompleta',
-          detail: `As variáveis [ ${missing.join(', ')} ] não foram detectadas. Se você já as colocou na Vercel, certifique-se de ter feito um NOVO DEPLOY (Redeploy).`
+          detail: 'As chaves C7 não foram encontradas. Se você já as adicionou na Vercel, faça um NOVO DEPLOY (Redeploy) para que elas entrem em vigor.'
         });
       }
 
-      // 1. URL Final - Garantindo HTTPS e v2
-      let cleanBaseUrl = BASE_URL.replace(/\/+$/, '');
-      if (cleanBaseUrl.endsWith('/v2')) {
-        cleanBaseUrl = cleanBaseUrl.replace(/\/v2$/, '');
-      }
-      const url = `${cleanBaseUrl}/v2/payment/create`;
+      // 1. URL Final - Garantindo o caminho correto
+      // A documentação pode aceitar /v2/pix/create ou /v2/payment/create
+      // Vamos usar a URL base e garantir que o path esteja correto.
+      const baseUrl = BASE_URL.replace(/\/+$/, '').replace(/\/v2$/, '');
+      const url = `${baseUrl}/v2/payment/create`;
       
-      // 2. Payload Minimalista (Seguindo estritamente a captura de tela da documentação)
-      const host = req.get('host') || 'achadinhos-ovlj.vercel.app';
-      const callback = `https://${host}/api/webhook/pix`;
-
-      // Sanitização básica
-      const sanitizedExternalId = `ID${Date.now()}`;
-
+      // 2. Payload Sanitizado
+      const externalId = `ORDR_${Date.now()}`;
       const payload = {
         amount: Number(parseFloat(String(amount)).toFixed(2)),
-        externalId: sanitizedExternalId,
-        callbackUrl: callback,
-        description: `Pedido ${sanitizedExternalId}`,
+        externalId: externalId,
+        callbackUrl: `https://${req.get('host')}/api/webhook/pix`,
+        description: `Pedido ${externalId}`,
         payer: {
-          name: "Cliente Achadinhos",
-          document: (payer?.cpf || '').replace(/\D/g, '') || '00000000000',
+          name: (payer?.name || 'Cliente').normalize('NFD').replace(/[\u0300-\u036f]/g, "").substring(0, 60),
+          document: (payer?.cpf || '00000000000').replace(/\D/g, ''),
           email: (payer?.email || 'contato@cliente.com').substring(0, 60)
         }
       };
@@ -91,11 +81,12 @@ function signRequest(apiSecret: string, body: any) {
         .update(timestamp + '.' + bodyString)
         .digest('hex');
 
-      console.log(`[C7] Requesting PIX. URL: ${url} | ID: ${sanitizedExternalId}`);
+      console.log(`[C7] Chamando Endpoint: ${url}`);
 
+      // 3. Requisição com Bearer Obrigatório
       const response = await axios.post(url, bodyString, {
         headers: {
-          'Authorization': `Bearer ${API_KEY.trim().replace('Bearer ', '')}`,
+          'Authorization': `Bearer ${API_KEY.replace('Bearer ', '').trim()}`,
           'Content-Type': 'application/json',
           'X-C7-Timestamp': timestamp,
           'X-C7-Signature': signature
@@ -104,26 +95,23 @@ function signRequest(apiSecret: string, body: any) {
       });
 
       const data = response.data;
-      const p = data.payment || data;
-      const qrCode = p.pixCopiaECola || p.qrcode_text || p.qrCode;
-      const qrImage = p.qrCodeBase64 || p.qrcode_url || p.qrCodeUrl;
+      const payment = data.payment || data;
 
-      if (qrCode || qrImage) {
+      if (payment && (payment.pixCopiaECola || payment.qrCodeBase64)) {
         return res.json({
-          qrcode_text: qrCode,
-          qrcode: qrImage,
-          txid: p.id || p.txid || sanitizedExternalId,
+          qrcode_text: payment.pixCopiaECola || payment.qrcode_text,
+          qrcode: payment.qrCodeBase64 || payment.qrcode_url,
+          txid: payment.id || payment.txid || externalId,
           is_real: true
         });
       } else {
-        throw new Error('QR Code não encontrado na resposta da C7.');
+        throw new Error('QR Code não encontrado na resposta.');
       }
 
     } catch (error: any) {
       const errorData = error.response?.data;
       const errorStatus = error.response?.status;
       
-      // Extrai mensagem da C7 ou erro geral
       let detailMsg = error.message;
       if (errorData) {
         detailMsg = typeof errorData === 'object' 
@@ -131,18 +119,10 @@ function signRequest(apiSecret: string, body: any) {
           : String(errorData);
       }
       
-      console.error(`[PIX ERROR] Status: ${errorStatus} | Msg: ${detailMsg}`);
-
-      // Se for 401/403, as chaves provavelmente estão erradas ou a assinatura falhou
-      if (errorStatus === 401 || errorStatus === 403) {
-        return res.status(errorStatus).json({ 
-          error: 'Erro de Autenticação na C7',
-          detail: 'A C7 recusou a chave ou a assinatura. Verifique se copiou as chaves de PRODUÇÃO corretamente e sem espaços.' 
-        });
-      }
+      console.error(`[C7 ERROR] Status: ${errorStatus} | Msg: ${detailMsg}`);
 
       return res.status(errorStatus || 500).json({
-        error: 'Erro no Processamento',
+        error: errorStatus === 401 ? 'Erro de Autenticação na C7' : 'Erro no Pix',
         detail: detailMsg
       });
     }
