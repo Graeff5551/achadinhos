@@ -50,33 +50,32 @@ function signRequest(apiSecret: string, body: any) {
         if (!API_KEY) missing.push('C7_API_KEY');
         if (!SECRET_KEY) missing.push('C7_CHAVE_SECRETA');
         
-        console.error(`[PIX ERROR] Variáveis faltando na Vercel: ${missing.join(', ')}`);
         return res.status(401).json({ 
           error: 'Configuração faltante na Vercel',
-          detail: `As variáveis [ ${missing.join(', ')} ] não foram detectadas no ambiente. Verifique o painel da Vercel.`
+          detail: `As variáveis [ ${missing.join(', ')} ] não foram detectadas. Verifique a aba de Environment Variables na Vercel.`
         });
       }
 
-      // 1. URL Final (Robusta para aceitar com ou sem /v2 na base)
+      // 1. URL Final - Forçando padrão v2
       let cleanBaseUrl = BASE_URL.replace(/\/+$/, '');
-      const url = cleanBaseUrl.includes('/v2') 
-        ? (cleanBaseUrl.endsWith('/payment/create') ? cleanBaseUrl : `${cleanBaseUrl}/payment/create`)
-        : `${cleanBaseUrl}/v2/payment/create`;
+      if (cleanBaseUrl.endsWith('/v2')) {
+        cleanBaseUrl = cleanBaseUrl.replace(/\/v2$/, '');
+      }
+      const url = `${cleanBaseUrl}/v2/payment/create`;
       
       console.log(`[PIX] Iniciando transação. URL: ${url}`);
 
-      // 2. Payload Simplificado e Robusto
-      const protocol = 'https'; // Forçamos HTTPS porque a C7 exige para o callbackUrl
+      // 2. Payload Robusto
       const host = req.get('host') || 'achadinhos-ovlj.vercel.app';
-      const callback = `${protocol}://${host}/api/webhook/pix`;
+      const callback = `https://${host}/api/webhook/pix`;
 
       const payload = {
         amount: Number(parseFloat(String(amount)).toFixed(2)),
-        externalId: `ORDER_${Date.now()}`,
+        externalId: String(Date.now()), // Simplificado para apenas números
         description: 'Pedido Achadinhos Baby',
         callbackUrl: callback,
         payer: {
-          name: (payer?.name || 'Cliente').substring(0, 60),
+          name: (payer?.name || 'Cliente').substring(0, 60).normalize('NFD').replace(/[\u0300-\u036f]/g, ""),
           document: (payer?.cpf || '').replace(/\D/g, ''),
           email: (payer?.email || 'contato@cliente.com').substring(0, 60)
         }
@@ -99,13 +98,10 @@ function signRequest(apiSecret: string, body: any) {
           'X-C7-Timestamp': timestamp,
           'X-C7-Signature': signature
         },
-        timeout: 12000
+        timeout: 15000
       });
 
       const data = response.data;
-      console.log('[PIX SUCCESS] API respondendo');
-
-      // Alguns ambientes retornam o objeto payment, outros retornam os dados na raiz
       const p = data.payment || data;
 
       if (p && (p.pixCopiaECola || p.qrCodeBase64 || p.qrcode_url)) {
@@ -116,33 +112,29 @@ function signRequest(apiSecret: string, body: any) {
           is_real: true
         });
       } else {
-        console.error('[PIX ERROR] Estrutura de resposta inválida:', JSON.stringify(data));
-        throw new Error('A API não retornou os dados do PIX esperados.');
+        throw new Error('A API não retornou os dados do PIX.');
       }
 
     } catch (error: any) {
       const errorData = error.response?.data;
       const errorStatus = error.response?.status;
       
-      // Tenta extrair a mensagem de erro da C7
       const c7Message = errorData?.error?.message || errorData?.message || JSON.stringify(errorData);
       const errorMsg = errorData ? c7Message : error.message;
       
       console.error(`[PIX ERROR] Status: ${errorStatus} | Msg: ${errorMsg}`);
 
-      // Se for erro de autenticação na API externa
       if (errorStatus === 401 || errorStatus === 403) {
         return res.status(errorStatus).json({ 
-          error: 'Erro de Autenticação na C7. Verifique se suas chaves estão corretas.',
-          detail: errorMsg 
+          error: 'Chave de API Inválida',
+          detail: 'A C7 recusou a autenticação. Verifique se copiou as chaves de Produção corretamente.' 
         });
       }
 
-      // Se for erro de validação (como o HTTPS anterior)
-      if (errorStatus === 422) {
-        return res.status(422).json({
-          error: 'Erro de validação nos dados enviados.',
-          detail: errorMsg
+      if (errorStatus === 500) {
+        return res.status(500).json({
+          error: 'Erro Interno na C7',
+          detail: 'A API do parceiro falhou (500). Verifique se sua conta na C7 está ativa.'
         });
       }
 
