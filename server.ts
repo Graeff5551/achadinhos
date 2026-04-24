@@ -53,19 +53,21 @@ function signRequest(apiSecret: string, body: any) {
         });
       }
 
-      // 1. URL Final - Construção direta para evitar 404
-      // Removemos /v2 ou barras extras da base para garantir o caminho correto
+      // 1. URL Final - Construção robusta para evitar 404
+      // Removemos /v2 ou barras extras da base para garantir o caminho único: DOMINIO + /v2/payment/create
       const cleanBase = BASE_URL.replace(/\/+$/, '').replace(/\/v2$/, '');
       const url = `${cleanBase}/v2/payment/create`;
       
-      console.log(`[C7] Chamando URL: ${url}`);
+      console.log(`[C7] Chamando URL final: ${url}`);
       
-      // 2. Payload - Usando os campos que são padrão na Carteira do 7
+      // 2. Payload de Alta Compatibilidade (padrão estável da C7)
       const externalId = `PEDIDO_${Date.now()}`;
       const payload = {
         amount: Number(parseFloat(String(amount)).toFixed(2)),
         externalId: externalId,
+        external_id: externalId,
         callbackUrl: `https://${req.get('host')}/api/webhook/pix`,
+        callback_url: `https://${req.get('host')}/api/webhook/pix`,
         description: `Pedido ${externalId}`,
         payer: {
           name: (payer?.name || 'Cliente').normalize('NFD').replace(/[\u0300-\u036f]/g, "").substring(0, 60),
