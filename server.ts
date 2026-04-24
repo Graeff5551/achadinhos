@@ -38,46 +38,41 @@ function signRequest(apiSecret: string, body: any) {
   app.post('/api/payment/pix', async (req, res) => {
     const { amount, payer } = req.body;
     
-    // Configurações extraídas do ambiente Vercel
-    const BASE_URL = (process.env.URL_BASE_C7 || 'https://api.carteirado7.com').trim();
-    const API_KEY = (process.env.C7_API_KEY || '').trim();
-    const SECRET_KEY = (process.env.C7_CHAVE_SECRETA || '').trim();
-
     try {
-      // 1. Configurações e Limpeza de Chaves
+      // 1. Configurações extraídas do ambiente
       const BASE_URL = (process.env.URL_BASE_C7 || 'https://api.carteirado7.com').trim();
       const API_KEY = (process.env.C7_API_KEY || '').trim();
       const SECRET_KEY = (process.env.C7_CHAVE_SECRETA || '').trim();
 
-      // Diagnóstico seguro nos logs da Vercel
+      // Diagnóstico detalhado para logs da Vercel
       if (!API_KEY || !SECRET_KEY) {
-        console.error('[C7] ERRO: Chaves API_KEY ou SECRET_KEY ausentes.');
+        console.error(`[C7 DEBUG] Erro de Ambiente: API_KEY(${API_KEY.length} carac.) ou SECRET_KEY(${SECRET_KEY.length} carac.) ausentes.`);
         return res.status(401).json({ 
           error: 'Configuração Incompleta',
-          detail: 'As chaves C7 não foram encontradas no ambiente.'
+          detail: `As chaves C7 não foram encontradas no ambiente. Verifique C7_API_KEY e C7_CHAVE_SECRETA na Vercel e faça um NOVO DEPLOY (Redeploy).`
         });
       }
 
-      // 2. Construção da URL - Evitando o 404
-      // Removemos qualquer path da base e fixamos o endpoint da Documentação
+      // 2. Construção da URL (Conforme documentação da imagem)
       const host = BASE_URL.replace('https://', '').replace('http://', '').split('/')[0];
       const url = `https://${host}/v2/payment/create`;
       
-      console.log(`[C7] Chamando Endpoint: ${url}`);
+      console.log(`[C7] Solicitando PIX em: ${url}`);
       
-      // 3. Payload - Seguindo EXATAMENTE a imagem da documentação (WhatsApp)
+      // 3. Payload - Seguindo os campos da imagem (WhatsApp)
       const externalId = `PEDIDO_${Date.now()}`;
       const payload: any = {
         amount: Number(parseFloat(String(amount)).toFixed(2)),
         externalId: externalId,
-        callbackUrl: `https://${req.get('host')}/api/webhook/pix`
+        callbackUrl: `https://${req.get('host') || 'achadinhos-baby.vercel.app'}/api/webhook/pix`,
+        description: `Pedido ${externalId}`
       };
 
-      // Adicionamos o payer apenas se existir, pois não está no exemplo básico da imagem
-      if (payer) {
+      // Adicionamos o payer se os dados básicos existirem
+      if (payer && (payer.cpf || payer.document)) {
         payload.payer = {
           name: (payer.name || 'Cliente').normalize('NFD').replace(/[\u0300-\u036f]/g, "").substring(0, 60),
-          document: (payer.cpf || payer.document || '00000000000').replace(/\D/g, '').substring(0, 14)
+          document: (payer.cpf || payer.document).replace(/\D/g, '').substring(0, 14)
         };
       }
 
@@ -89,7 +84,7 @@ function signRequest(apiSecret: string, body: any) {
         .update(timestamp + '.' + bodyString)
         .digest('hex');
 
-      // 4. Requisição com Headers exatos da imagem
+      // 4. Requisição com Headers de Autenticação HMAC
       const response = await axios.post(url, bodyString, {
         headers: {
           'Authorization': `Bearer ${API_KEY.replace('Bearer ', '').trim()}`,
@@ -97,17 +92,18 @@ function signRequest(apiSecret: string, body: any) {
           'X-C7-Timestamp': timestamp,
           'X-C7-Signature': signature
         },
-        timeout: 10000
+        timeout: 12000
       });
 
       const data = response.data;
       const payment = data.payment || data;
 
-      // Suporte a formatos de resposta estáveis
+      // Mapeamento de resposta (Suporte a múltiplos formatos C7)
       const qrCode = payment.pixCopiaECola || payment.qrcode_text || payment.pix_copia_e_cola;
       const qrImage = payment.qrCodeBase64 || payment.qrcode_url || payment.qrcode_base64;
 
       if (qrCode || qrImage) {
+        console.log(`[C7 SUCESSO] Pix gerado: ${externalId}`);
         return res.json({
           qrcode_text: qrCode,
           qrcode: qrImage,
@@ -115,7 +111,7 @@ function signRequest(apiSecret: string, body: any) {
           is_real: true
         });
       } else {
-        throw new Error('QR Code não encontrado na resposta.');
+        throw new Error('QR Code não encontrado na resposta da API.');
       }
 
     } catch (error: any) {
@@ -125,14 +121,14 @@ function signRequest(apiSecret: string, body: any) {
       let detailMsg = error.message;
       if (errorData) {
         detailMsg = typeof errorData === 'object' 
-          ? (errorData.error?.message || errorData.message || JSON.stringify(errorData))
+          ? (errorData.detail || errorData.message || errorData.error?.message || JSON.stringify(errorData))
           : String(errorData);
       }
       
-      console.error(`[C7 ERROR] Status: ${errorStatus} | Msg: ${detailMsg}`);
+      console.error(`[C7 ERRO API] Status: ${errorStatus} | Msg: ${detailMsg}`);
 
       return res.status(errorStatus || 500).json({
-        error: errorStatus === 401 ? 'Erro de Autenticação na C7' : 'Erro no Pix',
+        error: errorStatus === 401 ? 'Erro de Autenticação na C7' : 'Erro ao processar PIX',
         detail: detailMsg
       });
     }
