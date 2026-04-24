@@ -58,25 +58,12 @@ export default function Checkout() {
     setLoading(true);
     
     try {
-      // 1. Gerar o Pix real na API com Timeout
-      const pixTask = createPixPayment(total, `Pedido Achadinhos Baby - ${formData.name}`, {
+      // 1. Gerar o Pix real na API
+      const pixResponse = await createPixPayment(total, `Pedido Achadinhos Baby - ${formData.name}`, {
         name: formData.name,
         email: auth.currentUser?.email || formData.name.toLowerCase().replace(/ /g, '') + '@cliente.com',
         cpf: formData.cpf.replace(/\D/g, '')
       });
-      const timeoutTask = new Promise((_, reject) => setTimeout(() => reject(new Error('Timeout')), 10000));
-      
-      let pixResponse: any;
-      try {
-        pixResponse = await Promise.race([pixTask, timeoutTask]);
-      } catch (e) {
-        console.warn("API de pagamento lenta ou fora do ar, usando fallback seguro.");
-        pixResponse = {
-            qrcode: 'https://api.qrserver.com/v1/create-qr-code/?size=250x250&data=CHAVE_PIX_SEGURA',
-            qrcode_text: '00020126360014BR.GOV.BCB.PIX0114+5511999999999520400005303986540510.005802BR5913AchadinhosB6009SaoPaulo62070503***6304E2B1',
-            txid: 'TEMP_' + Date.now()
-        };
-      }
 
       setPixData({ 
         qrcode: pixResponse.qrcode || '', 
