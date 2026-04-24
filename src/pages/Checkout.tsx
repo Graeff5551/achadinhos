@@ -92,8 +92,17 @@ export default function Checkout() {
       setStep(2);
     } catch (error: any) {
       console.error("Erro ao processar pedido:", error);
-      const detail = error.response?.data?.error || error.message || "Erro desconhecido";
-      alert(`⚠️ Erro no Pagamento: ${detail}\n\nVerifique se as chaves da C7 estão corretas nas Variáveis de Ambiente da Vercel.`);
+      
+      let detail = "Erro desconhecido";
+      if (error.response?.data) {
+        detail = typeof error.response.data === 'string' 
+          ? error.response.data 
+          : JSON.stringify(error.response.data);
+      } else {
+        detail = error.message;
+      }
+
+      alert(`⚠️ Erro no Pagamento:\n${detail}\n\nVerifique se as chaves da C7 estão corretas e se você fez o 'Redeploy' na Vercel.`);
     } finally {
       setLoading(false);
     }

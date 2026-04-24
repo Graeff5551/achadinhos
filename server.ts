@@ -84,7 +84,9 @@ function signRequest(apiSecret: string, body: any) {
         .update(timestamp + '.' + bodyString)
         .digest('hex');
 
-      const response = await axios.post(url, payload, {
+      console.log(`[PIX DEBUG] Enviando payload assinado para ${url}`);
+
+      const response = await axios.post(url, bodyString, {
         headers: {
           'Authorization': `Bearer ${API_KEY}`,
           'Content-Type': 'application/json',
