@@ -97,18 +97,18 @@ export default function Checkout() {
       if (error.response?.data) {
         const data = error.response.data;
         if (typeof data === 'object') {
-          // Prioriza 'detail' (nossa mensagem amigável) ou 'message' da API
           detail = data.detail || data.error?.message || data.message || (typeof data.error === 'string' ? data.error : JSON.stringify(data));
         } else {
-          detail = String(data);
+          // Se for HTML (erro 500 da Vercel), pega só o começo
+          detail = String(data).substring(0, 200).replace(/<[^>]*>?/gm, '');
         }
       } else if (error.message === "Network Error") {
-        detail = "Erro de conexão com o servidor. Verifique se o servidor está rodando.";
+        detail = "Erro de conexão com o servidor. Se estiver na Vercel, o tempo limite pode ter sido excedido.";
       } else {
         detail = typeof error === 'string' ? error : (error.message || JSON.stringify(error));
       }
 
-      alert(`⚠️ Erro no Pagamento:\n${detail}\n\nSe estiver na Vercel: Verifique se as chaves da C7 estão corretas nas Variáveis de Ambiente e se você fez o 'Redeploy'.`);
+      alert(`⚠️ Erro no Pagamento:\n${detail}\n\nNota: Verifique se suas chaves C7_API_KEY e C7_CHAVE_SECRETA estão corretas na aba Environment Variables da Vercel.`);
     } finally {
       setLoading(false);
     }
