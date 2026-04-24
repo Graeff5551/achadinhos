@@ -95,9 +95,11 @@ export default function Checkout() {
       
       let detail = "Erro desconhecido";
       if (error.response?.data) {
-        detail = typeof error.response.data === 'string' 
-          ? error.response.data 
-          : JSON.stringify(error.response.data);
+        if (typeof error.response.data === 'object') {
+          detail = error.response.data.detail || error.response.data.error || JSON.stringify(error.response.data);
+        } else {
+          detail = error.response.data;
+        }
       } else {
         detail = error.message;
       }

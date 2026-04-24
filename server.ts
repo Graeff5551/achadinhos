@@ -38,21 +38,32 @@ function signRequest(apiSecret: string, body: any) {
   app.post('/api/payment/pix', async (req, res) => {
     const { amount, description, payer } = req.body;
     
-    // Variáveis configuradas na Vercel pelo usuário
-    const BASE_URL = (process.env.URL_BASE_C7 || 'https://api.carteirado7.com').trim();
+    // Variáveis configuradas na Vercel pelo usuário (Extraídas da captura de tela enviada)
+    const BASE_URL = (process.env.URL_BASE_C7 || 'https://api.carteirado7.com/v2').trim();
     const API_KEY = (process.env.C7_API_KEY || '').trim();
-    const SECRET_KEY = (process.env.C7_CHAVE_SECRETA || process.env.C7_SECRET_KEY || '').trim();
+    const SECRET_KEY = (process.env.C7_CHAVE_SECRETA || '').trim();
 
     try {
+      // Diagnóstico de Chaves
       if (!API_KEY || !SECRET_KEY) {
-        return res.status(401).json({ error: 'Configuração ausente: Verifique C7_API_KEY e C7_CHAVE_SECRETA na Vercel.' });
+        const missing = [];
+        if (!API_KEY) missing.push('C7_API_KEY');
+        if (!SECRET_KEY) missing.push('C7_CHAVE_SECRETA');
+        
+        console.error(`[PIX ERROR] Variáveis faltando na Vercel: ${missing.join(', ')}`);
+        return res.status(401).json({ 
+          error: 'Configuração faltante na Vercel',
+          detail: `As variáveis [ ${missing.join(', ')} ] não foram detectadas no ambiente. Verifique o painel da Vercel.`
+        });
       }
 
-      // 1. URL Final
-      const cleanBaseUrl = BASE_URL.replace(/\/+$/, '');
-      const url = cleanBaseUrl.endsWith('/v2') ? `${cleanBaseUrl}/payment/create` : `${cleanBaseUrl}/v2/payment/create`;
+      // 1. URL Final (Robusta para aceitar com ou sem /v2 na base)
+      let cleanBaseUrl = BASE_URL.replace(/\/+$/, '');
+      const url = cleanBaseUrl.includes('/v2') 
+        ? (cleanBaseUrl.endsWith('/payment/create') ? cleanBaseUrl : `${cleanBaseUrl}/payment/create`)
+        : `${cleanBaseUrl}/v2/payment/create`;
       
-      console.log(`[PIX] URL: ${url}`);
+      console.log(`[PIX] Iniciando transação. URL: ${url}`);
 
       // 2. Payload Simplificado e Robusto
       const protocol = 'https'; // Forçamos HTTPS porque a C7 exige para o callbackUrl
