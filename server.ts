@@ -53,19 +53,14 @@ function signRequest(apiSecret: string, body: any) {
         });
       }
 
-      // 1. URL Final - Construção mais robusta
-      let urlBase = BASE_URL.replace(/\/+$/, '');
-      // Se a URL base já contém /v2, apenas adicionamos o caminho do endpoint.
-      // O padrão da C7 para criação de PIX é /v2/payment/create
-      let url = urlBase;
-      if (!url.endsWith('/payment/create') && !url.endsWith('/pix')) {
-        // Se a base for apenas o domínio, adiciona v2. Se já tiver v2, adiciona o resto.
-        url = url.includes('/v2') ? `${urlBase}/payment/create` : `${urlBase}/v2/payment/create`;
-      }
+      // 1. URL Final - Construção direta para evitar 404
+      // Removemos /v2 ou barras extras da base para garantir o caminho correto
+      const cleanBase = BASE_URL.replace(/\/+$/, '').replace(/\/v2$/, '');
+      const url = `${cleanBase}/v2/payment/create`;
       
       console.log(`[C7] Chamando URL: ${url}`);
       
-      // 2. Payload Padrão (camelCase)
+      // 2. Payload - Usando os campos que são padrão na Carteira do 7
       const externalId = `PEDIDO_${Date.now()}`;
       const payload = {
         amount: Number(parseFloat(String(amount)).toFixed(2)),
