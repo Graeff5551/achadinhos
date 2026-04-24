@@ -105,25 +105,21 @@ app.post('/api/webhook/pix', (req, res) => {
   res.sendStatus(200);
 });
 
-// Integração com Vite para Desenvolvimento
-if (process.env.NODE_ENV !== 'production') {
-  const vite = await createViteServer({
-    server: { middlewareMode: true },
-    appType: 'spa',
-  });
-  app.use(vite.middlewares);
-} else {
-  const distPath = path.join(process.cwd(), 'dist');
-  app.use(express.static(distPath));
-  app.get('*', (req, res) => {
-    res.sendFile(path.join(distPath, 'index.html'));
-  });
-}
-
-if (process.env.NODE_ENV !== 'production') {
-  app.listen(PORT, '0.0.0.0', () => {
-    console.log(`Servidor rodando em http://localhost:${PORT}`);
-  });
+// Integração com Vite para Desenvolvimento Local
+// No Vercel, o Vercel cuida dos arquivos estáticos e das rotas
+if (process.env.NODE_ENV !== 'production' && !process.env.VERCEL) {
+  async function setupDevServer() {
+    const vite = await createViteServer({
+      server: { middlewareMode: true },
+      appType: 'spa',
+    });
+    app.use(vite.middlewares);
+    
+    app.listen(PORT, '0.0.0.0', () => {
+      console.log(`Servidor rodando em http://localhost:${PORT}`);
+    });
+  }
+  setupDevServer();
 }
 
 export default app;
