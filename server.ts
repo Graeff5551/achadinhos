@@ -29,25 +29,26 @@ function signRequest(apiSecret: string, body: any) {
   return { timestamp, signature };
 }
 
-// Endpoint para criação de PIX via Carteira do 7
-app.post('/api/payment/pix', async (req, res) => {
-  const { amount, description, payer } = req.body;
-  
-  const BASE_URL = process.env.C7_BASE_URL || 'https://api.carteirado7.com';
-  const API_KEY = process.env.C7_API_KEY;
-  const SECRET_KEY = process.env.C7_SECRET_KEY; // Chave api secreta
+  // Endpoint para criação de PIX via Carteira do 7
+  app.post('/api/payment/pix', async (req, res) => {
+    const { amount, description, payer } = req.body;
+    
+    // Sincronização com os nomes de variáveis que você usou na Vercel
+    const BASE_URL = process.env.URL_BASE_C7 || process.env.C7_BASE_URL || 'https://api.carteirado7.com';
+    const API_KEY = process.env.C7_API_KEY;
+    const SECRET_KEY = process.env.C7_CHAVE_SECRETA || process.env.C7_SECRET_KEY; // Chave api secreta
 
-  try {
-    if (!API_KEY || !SECRET_KEY) {
-      console.warn('[WARN] Configurações de pagamento (API_KEY/SECRET_KEY) ausentes.');
-      throw new Error('Config Missing');
-    }
+    try {
+      if (!API_KEY || !SECRET_KEY) {
+        console.warn('[WARN] Configurações de pagamento (API_KEY/SECRET_KEY) ausentes na Vercel/Ambiente.');
+        throw new Error('Config Missing');
+      }
 
-    const sanitizedBaseUrl = BASE_URL.endsWith('/') ? BASE_URL.slice(0, -1) : BASE_URL;
-    // Força o endpoint da documentação
-    const url = sanitizedBaseUrl.endsWith('/v2') 
-      ? `${sanitizedBaseUrl}/payment/create` 
-      : `${sanitizedBaseUrl}/v2/payment/create`;
+      const sanitizedBaseUrl = BASE_URL.endsWith('/') ? BASE_URL.slice(0, -1) : BASE_URL;
+      // Força o endpoint v2/payment/create que vimos na sua documentação
+      const url = sanitizedBaseUrl.includes('/v2') 
+        ? `${sanitizedBaseUrl.split('/v2')[0]}/v2/payment/create` 
+        : `${sanitizedBaseUrl}/v2/payment/create`;
 
     const payload = {
       amount: Number(amount), // Documentação usa float 150.00
