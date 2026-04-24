@@ -44,32 +44,36 @@ function signRequest(apiSecret: string, body: any) {
     const SECRET_KEY = (process.env.C7_CHAVE_SECRETA || '').trim();
 
     try {
-      // Diagnóstico de Chaves
+      // 1. Configurações e Limpeza de Chaves
+      const BASE_URL = (process.env.URL_BASE_C7 || 'https://api.carteirado7.com').trim();
+      const API_KEY = (process.env.C7_API_KEY || '').trim();
+      const SECRET_KEY = (process.env.C7_CHAVE_SECRETA || '').trim();
+
+      // Diagnóstico seguro nos logs da Vercel
       if (!API_KEY || !SECRET_KEY) {
-        console.error('[C7] Chaves não configuradas no Ambiente.');
+        console.error('[C7] ERRO: Chaves API_KEY ou SECRET_KEY ausentes.');
         return res.status(401).json({ 
           error: 'Configuração Incompleta',
-          detail: 'As chaves C7 não foram encontradas. Se você já as adicionou na Vercel, faça um NOVO DEPLOY (Redeploy) para que elas entrem em vigor.'
+          detail: 'As chaves C7 não foram encontradas no ambiente.'
         });
       }
 
-      // 1. URL Final - Construção segura para Vercel
-      // Extrai apenas o domínio (ex: api.carteirado7.com) e fixa o path correto
+      // 2. Construção da URL - Evitando o 404
+      // Removemos qualquer path da base e fixamos o endpoint da Documentação
       const host = BASE_URL.replace('https://', '').replace('http://', '').split('/')[0];
       const url = `https://${host}/v2/payment/create`;
       
-      console.log(`[C7] URL Final: ${url}`);
+      console.log(`[C7] Chamando Endpoint: ${url}`);
       
-      // 2. Payload - Seguindo estritamente a documentação da imagem
+      // 3. Payload - Seguindo EXATAMENTE a imagem da documentação (WhatsApp)
       const externalId = `PEDIDO_${Date.now()}`;
       const payload: any = {
         amount: Number(parseFloat(String(amount)).toFixed(2)),
         externalId: externalId,
-        callbackUrl: `https://${req.get('host')}/api/webhook/pix`,
-        description: `Pedido ${externalId}`
+        callbackUrl: `https://${req.get('host')}/api/webhook/pix`
       };
 
-      // Adiciona o payer se disponível, formatando o CPF/CNPJ
+      // Adicionamos o payer apenas se existir, pois não está no exemplo básico da imagem
       if (payer) {
         payload.payer = {
           name: (payer.name || 'Cliente').normalize('NFD').replace(/[\u0300-\u036f]/g, "").substring(0, 60),
@@ -85,9 +89,7 @@ function signRequest(apiSecret: string, body: any) {
         .update(timestamp + '.' + bodyString)
         .digest('hex');
 
-      console.log(`[C7 REQUEST] URL: ${url} | ID: ${externalId}`);
-
-      // 3. Requisição
+      // 4. Requisição com Headers exatos da imagem
       const response = await axios.post(url, bodyString, {
         headers: {
           'Authorization': `Bearer ${API_KEY.replace('Bearer ', '').trim()}`,
