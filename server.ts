@@ -53,11 +53,13 @@ function signRequest(apiSecret: string, body: any) {
         });
       }
 
-      // 1. URL Final - Garantindo o caminho correto
-      // A documentação pode aceitar /v2/pix/create ou /v2/payment/create
-      // Vamos usar a URL base e garantir que o path esteja correto.
+      // 1. URL Final - Garantindo o caminho correto para criação de PIX
+      // O erro 404 indica que /v2/payment/create pode estar incorreto. 
+      // Tentaremos /v2/pix/create que é o padrão documentado em versões recentes da C7.
       const baseUrl = BASE_URL.replace(/\/+$/, '').replace(/\/v2$/, '');
-      const url = `${baseUrl}/v2/payment/create`;
+      const url = `${baseUrl}/v2/pix/create`;
+      
+      console.log(`[C7] Tentando endpoint: ${url}`);
       
       // 2. Payload Sanitizado
       const externalId = `ORDR_${Date.now()}`;
