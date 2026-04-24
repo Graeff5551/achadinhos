@@ -59,32 +59,37 @@ function signRequest(apiSecret: string, body: any) {
       console.log(`[PIX DEBUG] URL: ${url}`);
 
       // Payload seguindo o padrão C7 v2
+      const host = req.get('host') || 'achadinhos-ovlj.vercel.app';
+      const protocol = req.headers['x-forwarded-proto'] || 'https';
+      
       const payload: any = {
         amount: Number(parseFloat(String(amount)).toFixed(2)), // Garantir formato decimal
-        externalId: `ORD${Date.now()}${Math.floor(Math.random() * 100)}`, // ID numérico/texto sem caracteres especiais complexos
+        externalId: `ORD${Date.now()}${Math.floor(Math.random() * 100)}`,
         description: (description || 'Pedido Achadinhos Baby').substring(0, 100),
-        callbackUrl: `https://${req.get('host')}/api/webhook/pix`
+        callbackUrl: `${protocol}://${host}/api/webhook/pix`
       };
       
       // Adicionar payer se disponível na requisição
       if (payer) {
         payload.payer = {
-          name: payer.name || 'Cliente',
+          name: (payer.name || 'Cliente').substring(0, 100),
           document: (payer.cpf || '').replace(/\D/g, ''),
-          email: payer.email || ''
+          email: (payer.email || '').substring(0, 100)
         };
       }
 
       const bodyString = JSON.stringify(payload);
       const timestamp = Math.floor(Date.now() / 1000).toString();
       
+      console.log(`[PIX DEBUG] Gerando assinatura para payload de ${bodyString.length} bytes`);
+
       // Assinatura: HMAC-SHA256(api_secret, timestamp + "." + body)
       const signature = crypto
         .createHmac('sha256', SECRET_KEY)
         .update(timestamp + '.' + bodyString)
         .digest('hex');
 
-      console.log(`[PIX DEBUG] Enviando payload assinado para ${url}`);
+      console.log(`[PIX DEBUG] Enviando para: ${url}`);
 
       const response = await axios.post(url, bodyString, {
         headers: {
@@ -93,7 +98,7 @@ function signRequest(apiSecret: string, body: any) {
           'X-C7-Timestamp': timestamp,
           'X-C7-Signature': signature
         },
-        timeout: 15000
+        timeout: 8000 // 8 segundos para dar tempo de retornar o Pix de teste antes da Vercel dar timeout
       });
 
       const data = response.data;
