@@ -53,21 +53,18 @@ function signRequest(apiSecret: string, body: any) {
         });
       }
 
-      // 1. URL Final - Construção robusta para evitar 404
-      // Removemos /v2 ou barras extras da base para garantir o caminho único: DOMINIO + /v2/payment/create
+      // 1. URL Final - Garantindo que não haja duplicação de /v2 e apontando para o endpoint estável
       const cleanBase = BASE_URL.replace(/\/+$/, '').replace(/\/v2$/, '');
       const url = `${cleanBase}/v2/payment/create`;
       
       console.log(`[C7] Chamando URL final: ${url}`);
       
-      // 2. Payload de Alta Compatibilidade (padrão estável da C7)
+      // 2. Payload Padrão (camelCase) - Conforme o que funcionava anteriormente
       const externalId = `PEDIDO_${Date.now()}`;
       const payload = {
         amount: Number(parseFloat(String(amount)).toFixed(2)),
         externalId: externalId,
-        external_id: externalId,
         callbackUrl: `https://${req.get('host')}/api/webhook/pix`,
-        callback_url: `https://${req.get('host')}/api/webhook/pix`,
         description: `Pedido ${externalId}`,
         payer: {
           name: (payer?.name || 'Cliente').normalize('NFD').replace(/[\u0300-\u036f]/g, "").substring(0, 60),
@@ -83,6 +80,8 @@ function signRequest(apiSecret: string, body: any) {
         .createHmac('sha256', SECRET_KEY)
         .update(timestamp + '.' + bodyString)
         .digest('hex');
+
+      console.log(`[C7 REQUEST] URL: ${url} | ID: ${externalId}`);
 
       // 3. Requisição
       const response = await axios.post(url, bodyString, {
