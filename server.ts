@@ -63,23 +63,24 @@ function signRequest(apiSecret: string, body: any) {
       }
       const url = `${cleanBaseUrl}/v2/payment/create`;
       
-      // 2. Payload Robusto e Sanitizado
+      // 2. Payload Minimalista e Sanitizado (Seguindo estritamente a documentação)
       const host = req.get('host') || 'achadinhos-ovlj.vercel.app';
       const callback = `https://${host}/api/webhook/pix`;
 
+      // Sanitização agressiva para evitar erros de encoding na assinatura
       const sanitizedName = (payer?.name || 'Cliente')
         .normalize('NFD')
         .replace(/[\u0300-\u036f]/g, "")
         .replace(/[^a-zA-Z0-9 ]/g, "")
-        .substring(0, 60);
+        .trim();
 
       const payload = {
         amount: Number(parseFloat(String(amount)).toFixed(2)),
-        externalId: `ACH_${Date.now()}`,
-        description: 'Pedido Achadinhos Baby',
+        externalId: `ORDER${Date.now()}`,
         callbackUrl: callback,
+        description: `Pedido ${sanitizedName}`.substring(0, 100),
         payer: {
-          name: sanitizedName,
+          name: sanitizedName.substring(0, 60),
           document: (payer?.cpf || '').replace(/\D/g, ''),
           email: (payer?.email || 'contato@cliente.com').substring(0, 60)
         }
@@ -88,35 +89,37 @@ function signRequest(apiSecret: string, body: any) {
       const bodyString = JSON.stringify(payload);
       const timestamp = Math.floor(Date.now() / 1000).toString();
       
-      // Assinatura HMAC-SHA256
+      // Assinatura HMAC-SHA256 (api_secret, timestamp + "." + body)
       const signature = crypto
         .createHmac('sha256', SECRET_KEY)
         .update(timestamp + '.' + bodyString)
         .digest('hex');
 
-      // 3. Requisição (Timeout de 9s)
+      // 3. Requisição (Timeout de 8s)
       const response = await axios.post(url, bodyString, {
         headers: {
-          'Authorization': API_KEY.startsWith('Bearer') ? API_KEY : `Bearer ${API_KEY}`,
+          'Authorization': `Bearer ${API_KEY.replace('Bearer ', '')}`,
           'Content-Type': 'application/json',
           'X-C7-Timestamp': timestamp,
           'X-C7-Signature': signature
         },
-        timeout: 9000
+        timeout: 8000
       });
 
       const data = response.data;
+      // Trata a estrutura retornada pela C7 { ok: true, payment: { ... } }
       const p = data.payment || data;
 
-      if (p && (p.pixCopiaECola || p.qrCodeBase64 || p.qrcode_url)) {
+      if (data.ok === true || (p && (p.pixCopiaECola || p.qrCodeBase64))) {
         return res.json({
-          qrcode_text: p.pixCopiaECola,
+          qrcode_text: p.pixCopiaECola || p.qrcode_text,
           qrcode: p.qrCodeBase64 || p.qrcode_url,
-          txid: p.id || p.txid || p.txID,
+          txid: p.id || p.txid,
           is_real: true
         });
       } else {
-        throw new Error('A API C7 não retornou os dados do PIX esperados.');
+        console.error('[C7 ERROR] Resposta sem dados esperados:', JSON.stringify(data));
+        throw new Error('A API C7 não retornou um PIX válido.');
       }
 
     } catch (error: any) {
