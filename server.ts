@@ -56,26 +56,30 @@ function signRequest(apiSecret: string, body: any) {
         });
       }
 
-      // 1. URL Final - Forçando padrão v2
+      // 1. URL Final - Garantindo HTTPS e v2
       let cleanBaseUrl = BASE_URL.replace(/\/+$/, '');
       if (cleanBaseUrl.endsWith('/v2')) {
         cleanBaseUrl = cleanBaseUrl.replace(/\/v2$/, '');
       }
       const url = `${cleanBaseUrl}/v2/payment/create`;
       
-      console.log(`[PIX] Iniciando transação. URL: ${url}`);
-
-      // 2. Payload Robusto
+      // 2. Payload Robusto e Sanitizado
       const host = req.get('host') || 'achadinhos-ovlj.vercel.app';
       const callback = `https://${host}/api/webhook/pix`;
 
+      const sanitizedName = (payer?.name || 'Cliente')
+        .normalize('NFD')
+        .replace(/[\u0300-\u036f]/g, "")
+        .replace(/[^a-zA-Z0-9 ]/g, "")
+        .substring(0, 60);
+
       const payload = {
         amount: Number(parseFloat(String(amount)).toFixed(2)),
-        externalId: `ACH_${Date.now()}_${Math.floor(Math.random() * 1000)}`,
+        externalId: `ACH_${Date.now()}`,
         description: 'Pedido Achadinhos Baby',
         callbackUrl: callback,
         payer: {
-          name: (payer?.name || 'Cliente').substring(0, 60).normalize('NFD').replace(/[\u0300-\u036f]/g, ""),
+          name: sanitizedName,
           document: (payer?.cpf || '').replace(/\D/g, ''),
           email: (payer?.email || 'contato@cliente.com').substring(0, 60)
         }
@@ -90,7 +94,7 @@ function signRequest(apiSecret: string, body: any) {
         .update(timestamp + '.' + bodyString)
         .digest('hex');
 
-      // 3. Requisição (Timeout reduzido para 8s para evitar erro 500 da Vercel)
+      // 3. Requisição (Timeout de 9s)
       const response = await axios.post(url, bodyString, {
         headers: {
           'Authorization': API_KEY.startsWith('Bearer') ? API_KEY : `Bearer ${API_KEY}`,
@@ -98,7 +102,7 @@ function signRequest(apiSecret: string, body: any) {
           'X-C7-Timestamp': timestamp,
           'X-C7-Signature': signature
         },
-        timeout: 8000
+        timeout: 9000
       });
 
       const data = response.data;
@@ -112,7 +116,7 @@ function signRequest(apiSecret: string, body: any) {
           is_real: true
         });
       } else {
-        throw new Error('A API não retornou os dados do PIX.');
+        throw new Error('A API C7 não retornou os dados do PIX esperados.');
       }
 
     } catch (error: any) {
@@ -126,26 +130,14 @@ function signRequest(apiSecret: string, body: any) {
 
       if (errorStatus === 401 || errorStatus === 403) {
         return res.status(errorStatus).json({ 
-          error: 'Chave de API Inválida',
-          detail: 'A C7 recusou a autenticação. Verifique se copiou as chaves de Produção corretamente.' 
+          error: 'Chave de API Inválida (401/403) na C7',
+          detail: 'A C7 recusou a autenticação. Revise suas chaves e faça o Redeploy na Vercel.' 
         });
       }
 
-      if (errorStatus === 500) {
-        return res.status(500).json({
-          error: 'Erro Interno na C7',
-          detail: 'A API do parceiro falhou (500). Verifique se sua conta na C7 está ativa.'
-        });
-      }
-
-      // Fallback amigável
-      const fallbackMsg = "00020126360014BR.GOV.BCB.PIX0114+5511999999999520400005303986540510.005802BR5913AchadinhosB6009SaoPaulo62070503***6304E2B1";
-      return res.json({
-        qrcode_text: fallbackMsg,
-        qrcode: `https://api.qrserver.com/v1/create-qr-code/?size=250x250&data=${encodeURIComponent(fallbackMsg)}`,
-        txid: 'DEV_FALLBACK_' + Date.now(),
-        is_fallback: true,
-        error_info: errorMsg
+      return res.status(errorStatus || 500).json({
+        error: errorStatus === 500 ? 'Erro Interno (500) na C7' : 'Erro ao Gerar PIX',
+        detail: errorMsg
       });
     }
   });

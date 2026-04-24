@@ -97,8 +97,8 @@ export default function Checkout() {
       if (error.response?.data) {
         const data = error.response.data;
         if (typeof data === 'object') {
-          // Trata o formato específico da C7: { error: { message: "..." } } ou { message: "..." }
-          detail = data.error?.message || data.message || data.detail || JSON.stringify(data);
+          // Prioriza 'detail' (nossa mensagem amigável) ou 'message' da API
+          detail = data.detail || data.error?.message || data.message || (typeof data.error === 'string' ? data.error : JSON.stringify(data));
         } else {
           detail = String(data);
         }
