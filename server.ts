@@ -18,6 +18,11 @@ const PORT = 3000;
 app.use(cors());
 app.use(express.json());
 
+// Rota de saúde para verificar se o servidor está respondendo
+app.get('/api/health', (req, res) => {
+  res.json({ status: 'ok', time: new Date().toISOString() });
+});
+
 // Função para assinar a requisição conforme documentação da C7
 function signRequest(apiSecret: string, body: any) {
   const timestamp = Math.floor(Date.now() / 1000);
@@ -33,104 +38,93 @@ function signRequest(apiSecret: string, body: any) {
   app.post('/api/payment/pix', async (req, res) => {
     const { amount, description, payer } = req.body;
     
-    // Sincronização com os nomes de variáveis que você usou na Vercel
-    const BASE_URL = process.env.URL_BASE_C7 || process.env.C7_BASE_URL || 'https://api.carteirado7.com';
-    const API_KEY = process.env.C7_API_KEY;
-    const SECRET_KEY = process.env.C7_CHAVE_SECRETA || process.env.C7_SECRET_KEY; // Chave api secreta
+    // Variáveis configuradas na Vercel pelo usuário
+    const BASE_URL = (process.env.URL_BASE_C7 || 'https://api.carteirado7.com').trim();
+    const API_KEY = (process.env.C7_API_KEY || '').trim();
+    const SECRET_KEY = (process.env.C7_CHAVE_SECRETA || process.env.C7_SECRET_KEY || '').trim();
 
     try {
       if (!API_KEY || !SECRET_KEY) {
-        console.warn('[WARN] Configurações de pagamento (API_KEY/SECRET_KEY) ausentes.');
-        throw new Error('Config Missing');
+        throw new Error('C7_API_KEY ou C7_CHAVE_SECRETA não configuradas. Verifique a aba de Variáveis de Ambiente na Vercel.');
       }
 
-      const sanitizedBaseUrl = BASE_URL.endsWith('/') ? BASE_URL.slice(0, -1) : BASE_URL;
+      // Garantir URL correta: https://api.carteirado7.com/v2/payment/create
+      let url = BASE_URL;
+      if (url.endsWith('/')) url = url.slice(0, -1);
       
-      // Lista de possíveis endpoints baseados na documentação e curl compartilhado
-      const endpoints = [
-        sanitizedBaseUrl.includes('/payment/create') ? sanitizedBaseUrl : `${sanitizedBaseUrl}/payment/create`,
-        sanitizedBaseUrl.endsWith('/v2') ? sanitizedBaseUrl : `${sanitizedBaseUrl}/v2`,
-        `${sanitizedBaseUrl}/v2/payment/create`,
-        sanitizedBaseUrl // Último recurso
-      ];
+      if (!url.endsWith('/payment/create')) {
+        url = url.endsWith('/v2') ? `${url}/payment/create` : `${url}/v2/payment/create`;
+      }
 
-      // Remove duplicatas e garante que são URLs únicas
-      const uniqueEndpoints = [...new Set(endpoints)];
+      console.log(`[PIX DEBUG] URL: ${url}`);
 
-      let responseDetail = null;
-      let lastErrorDetail = null;
-
-      const payload = {
-        amount: Number(amount),
-        externalId: `ORD_${Date.now()}_${Math.floor(Math.random() * 1000)}`,
-        description: description || 'Pedido Achadinhos Baby',
+      // Payload seguindo o padrão C7 v2
+      const payload: any = {
+        amount: Number(parseFloat(String(amount)).toFixed(2)), // Garantir formato decimal
+        externalId: `ORD${Date.now()}${Math.floor(Math.random() * 100)}`, // ID numérico/texto sem caracteres especiais complexos
+        description: (description || 'Pedido Achadinhos Baby').substring(0, 100),
+        callbackUrl: `https://${req.get('host')}/api/webhook/pix`
       };
+      
+      // Adicionar payer se disponível na requisição
+      if (payer) {
+        payload.payer = {
+          name: payer.name || 'Cliente',
+          document: (payer.cpf || '').replace(/\D/g, ''),
+          email: payer.email || ''
+        };
+      }
 
       const bodyString = JSON.stringify(payload);
       const timestamp = Math.floor(Date.now() / 1000).toString();
+      
+      // Assinatura: HMAC-SHA256(api_secret, timestamp + "." + body)
       const signature = crypto
         .createHmac('sha256', SECRET_KEY)
         .update(timestamp + '.' + bodyString)
         .digest('hex');
 
-      for (const url of uniqueEndpoints) {
-        try {
-          console.log(`[INFO] Tentando C7 no endpoint: ${url}`);
-          const response = await axios.post(url, bodyString, {
-            headers: {
-              'Authorization': `Bearer ${API_KEY}`,
-              'Content-Type': 'application/json',
-              'X-C7-Timestamp': timestamp,
-              'X-C7-Signature': signature
-            },
-            timeout: 10000
-          });
-          
-          if (response.data && (response.data.ok || response.data.payment)) {
-            responseDetail = response.data;
-            break; 
-          }
-        } catch (e: any) {
-          lastErrorDetail = e.response?.data || e.message;
-          console.warn(`[WARN] Endpoint ${url} falhou:`, lastErrorDetail);
-          // Continua para o próximo endpoint
-        }
-      }
+      const response = await axios.post(url, payload, {
+        headers: {
+          'Authorization': `Bearer ${API_KEY}`,
+          'Content-Type': 'application/json',
+          'X-C7-Timestamp': timestamp,
+          'X-C7-Signature': signature
+        },
+        timeout: 15000
+      });
 
-      if (responseDetail) {
-        const data = responseDetail;
-        // Normalização flexível da resposta
-        const payment = data.payment || data;
-        const qrcode_text = payment.pixCopiaECola || payment.qrcode_text || payment.pix_code;
-        const qrcode = payment.qrCodeBase64 || payment.qrcode || payment.url;
-        const txid = payment.id || payment.txid || payment.transaction_id;
+      const data = response.data;
+      console.log('[PIX DEBUG] Resposta da API:', JSON.stringify(data));
 
-        if (!qrcode_text) {
-          console.error('[ERROR] Dados de Pix ausentes na resposta:', JSON.stringify(data));
-          throw new Error('PIX_DATA_MISSING');
-        }
-
+      if ((data.ok || data.payment) && (data.payment?.pixCopiaECola || data.pixCopiaECola)) {
+        const p = data.payment || data;
         return res.json({
-          qrcode_text,
-          qrcode,
-          txid
+          qrcode_text: p.pixCopiaECola,
+          qrcode: p.qrCodeBase64 || p.qrcode_url,
+          txid: p.id || p.txid,
+          is_real: true
         });
       } else {
-        throw new Error(typeof lastErrorDetail === 'string' ? lastErrorDetail : JSON.stringify(lastErrorDetail));
+        const errorDetail = data.message || data.error || 'Resposta incompleta da API';
+        throw new Error(errorDetail);
       }
 
     } catch (error: any) {
       const errorMsg = error.response?.data?.message || error.response?.data?.error || error.message;
-      console.error('[ERROR] Falha crítica na integração C7:', errorMsg);
+      console.error('[PIX ERROR]', errorMsg);
+      if (error.response?.data) console.log('[PIX ERROR DATA]', JSON.stringify(error.response.data));
       
-      // Fallback seguro se tudo falhar, mas avisando o frontend
+      // FALLBACK SEGURO: Se as chaves na Vercel estiverem erradas ou a API falhar,
+      // mostramos um PIX de teste para o fluxo do usuário não travar totalmente.
+      // AVISE AO USUÁRIO: Para o PIX ser REAL, as chaves na Vercel devem estar 100% corretas.
       const fakePixText = "00020126360014BR.GOV.BCB.PIX0114+5511999999999520400005303986540510.005802BR5913AchadinhosB6009SaoPaulo62070503***6304E2B1";
       const fakeQrCode = `https://api.qrserver.com/v1/create-qr-code/?size=250x250&data=${encodeURIComponent(fakePixText)}`;
       
       res.json({
         qrcode: fakeQrCode,
         qrcode_text: fakePixText,
-        txid: 'SIMULATED_' + Date.now(),
+        txid: 'FALLBACK_' + Date.now(),
         is_fallback: true,
         error_detail: errorMsg
       });
