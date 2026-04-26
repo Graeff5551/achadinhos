@@ -46,38 +46,42 @@ app.post('/api/payment/pix', async (req, res) => {
     const cleanBase = BASE_URL.replace(/\/+$/, '').replace(/\/v2$/, '');
     const url = `${cleanBase}${apiPath}`;
     
-    // 3. Payload (Conforme exemplo da imagem)
+    // 3. Payload (Conforme exemplo da imagem, garantindo ordem das chaves)
+    // Nota: O C7 pode ser sensível à ordem das chaves na assinatura.
     const externalId = `PEDIDO_${Date.now()}`;
     const payload = {
       amount: Number(parseFloat(String(amount)).toFixed(2)),
-      callbackUrl: `https://${req.get('host') || 'achadinhos-baby.vercel.app'}/api/webhook/pix`,
-      externalId: externalId
+      externalId: externalId,
+      callbackUrl: `https://${req.get('host') || 'achadinhos-baby.vercel.app'}/api/webhook/pix`
     };
 
     // 4. Geração da Assinatura HMAC-SHA256
     const timestamp = Math.floor(Date.now() / 1000).toString();
     const bodyString = JSON.stringify(payload);
     
-    // Formato documentado: timestamp + "." + body
+    // IMPORTANTE: A assinatura deve ser timestamp + "." + body stringificado sem espaços
     const signature = crypto
       .createHmac('sha256', SECRET_KEY)
       .update(`${timestamp}.${bodyString}`)
       .digest('hex');
     
-    console.log(`[C7] Request: ${url}`);
+    console.log(`[C7 DEBUG] URL: ${url}`);
+    console.log(`[C7 DEBUG] Payload: ${bodyString}`);
+    console.log(`[C7 DEBUG] Timestamp: ${timestamp}`);
+    console.log(`[C7 DEBUG] Signature: ${signature}`);
 
     // 5. Requisição para a API C7
     const response = await axios({
       method: 'POST',
       url: url,
-      data: bodyString,
+      data: payload, // Axios enviará como JSON automaticamente
       headers: {
         'Content-Type': 'application/json',
         'Authorization': `Bearer ${API_KEY.replace('Bearer ', '').trim()}`,
         'X-C7-Timestamp': timestamp,
         'X-C7-Signature': signature
       },
-      timeout: 15000 // Aumentado para 15s
+      timeout: 10000
     });
 
     const data = response.data;

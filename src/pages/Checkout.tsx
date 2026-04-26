@@ -65,11 +65,6 @@ export default function Checkout() {
         cpf: formData.cpf.replace(/\D/g, '')
       });
 
-      setPixData({ 
-        qrcode: pixResponse.qrcode || '', 
-        text: pixResponse.qrcode_text || '' 
-      });
-
       // 2. Salvar o pedido no Firestore
       const orderData = {
         userId: auth.currentUser?.uid || 'anonymous',
@@ -88,7 +83,15 @@ export default function Checkout() {
         txid: pixResponse.txid || `N_TX_${Date.now()}`,
         createdAt: serverTimestamp()
       };
+      
       await addDoc(collection(db, 'orders'), orderData);
+      
+      // APENAS ATUALIZAR ESTADO DE PIX E IR PARA PRÓXIMO PASSO
+      // NÃO esvaziar o carrinho ainda para evitar confusão se o usuário voltar
+      setPixData({ 
+        qrcode: pixResponse.qrcode || '', 
+        text: pixResponse.qrcode_text || '' 
+      });
       setStep(2);
     } catch (error: any) {
       console.error("Erro ao processar pedido:", error);
@@ -117,6 +120,8 @@ export default function Checkout() {
   const copyPix = () => {
     navigator.clipboard.writeText(pixData.text);
     setCopied(true);
+    // Esvazia o carrinho somente quando o usuário clica em copiar (intenção de pagar) ou no sucesso final
+    clearCart();
     setTimeout(() => setCopied(false), 2000);
   };
 
