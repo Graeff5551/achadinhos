@@ -40,23 +40,20 @@ app.post('/api/payment/pix', async (req, res) => {
       });
     }
 
-    // 2. Construção da URL e Path para assinatura
-    // O path exato usado na assinatura conforme solicitado
-    const path = '/v2/payment/create';
-    // Removemos qualquer barra final ou /v2 da base para construir a URL final corretamente
+    // 2. Construção da URL
     const cleanBase = BASE_URL.replace(/\/+$/, '').replace(/\/v2$/, '');
+    const path = '/v2/payment/create';
     const url = `${cleanBase}${path}`;
     
-    // 3. Payload conforme documentação (externalId é opcional mas recomendado)
+    // 3. Payload Minimalista conforme documentação
     const externalId = `PEDIDO_${Date.now()}`;
     const payload: any = {
       amount: Number(parseFloat(String(amount)).toFixed(2)),
       externalId: externalId,
-      callbackUrl: `https://${req.get('host') || 'achadinhos-baby.vercel.app'}/api/webhook/pix`,
-      description: `Pedido ${externalId}`
+      callbackUrl: `https://${req.get('host') || 'achadinhos-baby.vercel.app'}/api/webhook/pix`
     };
 
-    // Adicionamos o pagador se os dados mínimos existirem (nome e documento)
+    // Adicionamos o pagador se existir
     if (payer && (payer.name || payer.cpf || payer.document)) {
       payload.payer = {
         name: (payer.name || 'Cliente').normalize('NFD').replace(/[\u0300-\u036f]/g, "").substring(0, 60),
@@ -64,24 +61,22 @@ app.post('/api/payment/pix', async (req, res) => {
       };
     }
 
-    // 4. Geração da Assinatura HMAC-SHA256 (Ponto Crítico)
-    // Conforme a documentação oficial: timestamp + "." + body
+    // 4. Geração da Assinatura HMAC-SHA256
     const timestamp = Math.floor(Date.now() / 1000).toString();
     const bodyString = JSON.stringify(payload);
-    const method = 'POST';
     
-    const message = timestamp + "." + bodyString;
-    
+    // O formato da assinatura deve ser timestamp.body
     const signature = crypto
       .createHmac('sha256', SECRET_KEY)
-      .update(message)
+      .update(`${timestamp}.${bodyString}`)
       .digest('hex');
     
-    console.log(`[C7] Solicitando PIX: ${externalId} | Path: ${path}`);
+    console.log(`[C7] Request Body: ${bodyString}`);
+    console.log(`[C7] Signature Input: ${timestamp}.${bodyString}`);
 
     // 5. Requisição para a API C7
     const response = await axios({
-      method: method,
+      method: 'POST',
       url: url,
       data: bodyString,
       headers: {
