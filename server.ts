@@ -28,24 +28,22 @@ app.post('/api/payment/pix', async (req, res) => {
   const { amount, payer } = req.body;
   
   try {
-    // 1. Configurações da API (Conforme print da Vercel)
-    const BASE_URL = (process.env.URL_BASE_C7 || 'https://api.carteirado7.com/v2').trim();
+    // 1. Configurações da API (Lendo das variáveis de ambiente da Vercel)
     const API_KEY = (process.env.C7_API_KEY || '').trim();
     const SECRET_KEY = (process.env.C7_CHAVE_SECRETA || '').trim();
 
     if (!API_KEY || !SECRET_KEY) {
       console.error('[C7] Chaves ausentes nas variáveis de ambiente da Vercel.');
       return res.status(401).json({ 
-        error: 'Chaves não configuradas',
-        detail: 'C7_API_KEY ou C7_CHAVE_SECRETA não encontradas.'
+        error: 'Configuração Incompleta',
+        detail: 'As chaves C7_API_KEY ou C7_CHAVE_SECRETA não foram encontradas na Vercel.'
       });
     }
 
-    // 2. Construção da URL (C7 exige /v2/payment/create)
+    // 2. Construção da URL e Payload
     const url = 'https://api.carteirado7.com/v2/payment/create';
-    
-    // 3. Payload robusto (Payer pode ser obrigatório)
     const externalId = `PEDIDO_${Date.now()}`;
+    
     const payload = {
       amount: Number(parseFloat(String(amount)).toFixed(2)),
       externalId: externalId,
@@ -56,7 +54,7 @@ app.post('/api/payment/pix', async (req, res) => {
       }
     };
 
-    // 4. Geração da Assinatura HMAC-SHA256
+    // 3. Geração da Assinatura HMAC-SHA256
     const timestamp = Math.floor(Date.now() / 1000).toString();
     const bodyString = JSON.stringify(payload);
     
@@ -65,9 +63,7 @@ app.post('/api/payment/pix', async (req, res) => {
       .update(`${timestamp}.${bodyString}`)
       .digest('hex');
     
-    console.log(`[C7 DEBUG] Solicitando PIX: ${url}`);
-
-    // 5. Requisição para a API C7
+    // 4. Requisição para a API C7
     const response = await axios({
       method: 'POST',
       url: url,
@@ -75,27 +71,26 @@ app.post('/api/payment/pix', async (req, res) => {
       headers: {
         'Content-Type': 'application/json',
         'Accept': 'application/json',
-        'Accept-Language': 'pt-BR',
-        'X-C7-Key': API_KEY.trim(),
+        'X-C7-Key': API_KEY,
         'X-C7-Timestamp': timestamp,
         'X-C7-Signature': signature,
         'Authorization': `Bearer ${API_KEY.replace('Bearer ', '').trim()}`
       },
-      timeout: 10000
+      timeout: 15000
     });
 
     const data = response.data;
     const payment = data.payment || data;
+    
+    // Mapeamento flexível dos campos de retorno da C7
     const qrCode = payment.pixCopiaECola || payment.qrcode_text || payment.pix_copia_e_cola;
     const qrImage = payment.qrCodeBase64 || payment.qrcode_url || payment.qrcode_base64;
 
     if (qrCode || qrImage) {
-      console.log(`[C7 SUCCESS] PIX gerado: ${externalId}`);
       return res.json({
         qrcode_text: qrCode,
         qrcode: qrImage,
-        txid: payment.id || externalId,
-        is_real: true
+        txid: payment.id || externalId
       });
     } else {
       throw new Error('Resposta da API sem dados de pagamento.');
@@ -105,44 +100,31 @@ app.post('/api/payment/pix', async (req, res) => {
     const errorData = error.response?.data;
     const errorStatus = error.response?.status;
     
-    let detailMsg = error.message;
-    if (errorData) {
-      detailMsg = typeof errorData === 'object' 
-        ? (errorData.detail || errorData.message || JSON.stringify(errorData))
-        : String(errorData);
-    }
-    
-    console.error(`[C7 ERROR] Status: ${errorStatus} | Mensagem: ${detailMsg}`);
+    console.error(`[C7 ERROR] Status: ${errorStatus} | Mensagem: ${error.message}`);
 
     return res.status(errorStatus || 500).json({
-      error: errorStatus === 401 ? 'Não autorizado na C7' : 'Erro na API de Pix',
-      detail: detailMsg,
-      hint: errorStatus === 401 ? 'Verifique se a SECRET_KEY e API_KEY estão corretas na Vercel e faça um novo deploy.' : undefined
+      error: 'Erro na API de Pagamento',
+      detail: errorData?.message || errorData?.detail || error.message,
+      hint: errorStatus === 401 ? 'Verifique suas chaves na Vercel.' : undefined
     });
   }
 });
 
-// Webhook para receber confirmação de pagamento (placeholder)
-app.post('/api/webhook/pix', (req, res) => {
-  console.log('Webhook PIX recebido:', req.body);
-  res.sendStatus(200);
-});
+// Exporta o app para que a Vercel o trate como uma Serverless Function
+export default app;
 
-// Integração com Vite para Desenvolvimento Local
-// No Vercel, o Vercel cuida dos arquivos estáticos e das rotas
+// Configuração para desenvolvimento local
 if (process.env.NODE_ENV !== 'production' && !process.env.VERCEL) {
-  async function setupDevServer() {
+  const startServer = async () => {
     const vite = await createViteServer({
       server: { middlewareMode: true },
       appType: 'spa',
     });
     app.use(vite.middlewares);
     
-    app.listen(PORT, '0.0.0.0', () => {
+    app.listen(PORT, () => {
       console.log(`Servidor rodando em http://localhost:${PORT}`);
     });
-  }
-  setupDevServer();
+  };
+  startServer();
 }
-
-export default app;
