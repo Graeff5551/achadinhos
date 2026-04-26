@@ -28,53 +28,43 @@ app.post('/api/payment/pix', async (req, res) => {
   const { amount, payer } = req.body;
   
   try {
-    // 1. Configurações extraídas do ambiente
-    const BASE_URL = (process.env.URL_BASE_C7 || 'https://api.carteirado7.com').trim();
+    // 1. Configurações da API (Conforme print da Vercel)
+    const BASE_URL = (process.env.URL_BASE_C7 || 'https://api.carteirado7.com/v2').trim();
     const API_KEY = (process.env.C7_API_KEY || '').trim();
     const SECRET_KEY = (process.env.C7_CHAVE_SECRETA || '').trim();
 
     if (!API_KEY || !SECRET_KEY) {
+      console.error('[C7] Chaves ausentes nas variáveis de ambiente da Vercel.');
       return res.status(401).json({ 
         error: 'Chaves não configuradas',
-        detail: 'C7_API_KEY ou C7_CHAVE_SECRETA não encontradas no ambiente.'
+        detail: 'C7_API_KEY ou C7_CHAVE_SECRETA não encontradas.'
       });
     }
 
-    // 2. Construção da URL mais robusta
+    // 2. Construção da URL
     const apiPath = '/v2/payment/create';
     const cleanBase = BASE_URL.replace(/\/+$/, '').replace(/\/v2$/, '');
-    const url = cleanBase.startsWith('http') ? `${cleanBase}${apiPath}` : `https://${cleanBase}${apiPath}`;
+    const url = `${cleanBase}${apiPath}`;
     
-    console.log(`[C7] URL Final: ${url}`);
-    
-    // 3. Payload Minimalista conforme documentação
+    // 3. Payload (Conforme exemplo da imagem)
     const externalId = `PEDIDO_${Date.now()}`;
-    const payload: any = {
+    const payload = {
       amount: Number(parseFloat(String(amount)).toFixed(2)),
-      externalId: externalId,
-      callbackUrl: `https://${req.get('host') || 'achadinhos-baby.vercel.app'}/api/webhook/pix`
+      callbackUrl: `https://${req.get('host') || 'achadinhos-baby.vercel.app'}/api/webhook/pix`,
+      externalId: externalId
     };
-
-    // Adicionamos o pagador se existir
-    if (payer && (payer.name || payer.cpf || payer.document)) {
-      payload.payer = {
-        name: (payer.name || 'Cliente').normalize('NFD').replace(/[\u0300-\u036f]/g, "").substring(0, 60),
-        document: (payer.cpf || payer.document || '00000000000').replace(/\D/g, '').substring(0, 14)
-      };
-    }
 
     // 4. Geração da Assinatura HMAC-SHA256
     const timestamp = Math.floor(Date.now() / 1000).toString();
     const bodyString = JSON.stringify(payload);
     
-    // O formato da assinatura deve ser timestamp.body
+    // Formato documentado: timestamp + "." + body
     const signature = crypto
       .createHmac('sha256', SECRET_KEY)
       .update(`${timestamp}.${bodyString}`)
       .digest('hex');
     
-    console.log(`[C7] Request Body: ${bodyString}`);
-    console.log(`[C7] Signature: ${signature}`);
+    console.log(`[C7] Request: ${url}`);
 
     // 5. Requisição para a API C7
     const response = await axios({
@@ -87,7 +77,7 @@ app.post('/api/payment/pix', async (req, res) => {
         'X-C7-Timestamp': timestamp,
         'X-C7-Signature': signature
       },
-      timeout: 9000 // Limite de 9s para evitar timeout da Vercel (Hobby limit is 10s)
+      timeout: 15000 // Aumentado para 15s
     });
 
     const data = response.data;
