@@ -41,45 +41,45 @@ app.post('/api/payment/pix', async (req, res) => {
       });
     }
 
-    // 2. Construção da URL
-    const apiPath = '/v2/payment/create';
-    const cleanBase = BASE_URL.replace(/\/+$/, '').replace(/\/v2$/, '');
-    const url = `${cleanBase}${apiPath}`;
+    // 2. Construção da URL (C7 exige /v2/payment/create)
+    const url = 'https://api.carteirado7.com/v2/payment/create';
     
-    // 3. Payload (Conforme exemplo da imagem, garantindo ordem das chaves)
-    // Nota: O C7 pode ser sensível à ordem das chaves na assinatura.
+    // 3. Payload robusto (Payer pode ser obrigatório)
     const externalId = `PEDIDO_${Date.now()}`;
     const payload = {
       amount: Number(parseFloat(String(amount)).toFixed(2)),
       externalId: externalId,
-      callbackUrl: `https://${req.get('host') || 'achadinhos-baby.vercel.app'}/api/webhook/pix`
+      callbackUrl: `https://${req.get('host') || 'achadinhos-baby.vercel.app'}/api/webhook/pix`,
+      payer: {
+        name: (payer?.name || 'Cliente Achadinhos').normalize('NFD').replace(/[\u0300-\u036f]/g, "").substring(0, 60),
+        document: (payer?.cpf || '00000000000').replace(/\D/g, '').substring(0, 11)
+      }
     };
 
     // 4. Geração da Assinatura HMAC-SHA256
     const timestamp = Math.floor(Date.now() / 1000).toString();
     const bodyString = JSON.stringify(payload);
     
-    // IMPORTANTE: A assinatura deve ser timestamp + "." + body stringificado sem espaços
     const signature = crypto
       .createHmac('sha256', SECRET_KEY)
       .update(`${timestamp}.${bodyString}`)
       .digest('hex');
     
-    console.log(`[C7 DEBUG] URL: ${url}`);
-    console.log(`[C7 DEBUG] Payload: ${bodyString}`);
-    console.log(`[C7 DEBUG] Timestamp: ${timestamp}`);
-    console.log(`[C7 DEBUG] Signature: ${signature}`);
+    console.log(`[C7 DEBUG] Solicitando PIX: ${url}`);
 
     // 5. Requisição para a API C7
     const response = await axios({
       method: 'POST',
       url: url,
-      data: payload, // Axios enviará como JSON automaticamente
+      data: payload,
       headers: {
         'Content-Type': 'application/json',
-        'Authorization': `Bearer ${API_KEY.replace('Bearer ', '').trim()}`,
+        'Accept': 'application/json',
+        'Accept-Language': 'pt-BR',
+        'X-C7-Key': API_KEY.trim(),
         'X-C7-Timestamp': timestamp,
-        'X-C7-Signature': signature
+        'X-C7-Signature': signature,
+        'Authorization': `Bearer ${API_KEY.replace('Bearer ', '').trim()}`
       },
       timeout: 10000
     });

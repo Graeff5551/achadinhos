@@ -1,19 +1,25 @@
-import React from 'react';
-import { signInWithPopup } from 'firebase/auth';
+import React, { useState } from 'react';
+import { signInWithPopup, setPersistence, browserLocalPersistence } from 'firebase/auth';
 import { auth, googleProvider } from '../lib/firebase';
 import { useNavigate } from 'react-router-dom';
 import { motion } from 'motion/react';
-import { Heart, ShieldCheck } from 'lucide-react';
+import { Heart, ShieldCheck, Loader2 } from 'lucide-react';
 
 export default function Login() {
   const navigate = useNavigate();
+  const [loading, setLoading] = useState(false);
 
   const handleLogin = async () => {
+    setLoading(true);
     try {
+      await setPersistence(auth, browserLocalPersistence);
       await signInWithPopup(auth, googleProvider);
-      navigate('/');
+      navigate('/', { replace: true });
     } catch (error) {
       console.error('Login error:', error);
+      alert('Erro ao fazer login. Verifique sua conexão e tente novamente.');
+    } finally {
+      setLoading(false);
     }
   };
 
@@ -49,10 +55,20 @@ export default function Login() {
           <button 
             type="button"
             onClick={handleLogin}
-            className="w-full py-6 bg-white border-2 border-pink-50 rounded-[2rem] text-slate-700 font-bold hover:bg-brand-cream hover:border-pink-200 transition-all flex items-center justify-center gap-4 active:scale-95 shadow-sm text-xl"
+            disabled={loading}
+            className="w-full py-6 bg-white border-2 border-pink-50 rounded-[2rem] text-slate-700 font-bold hover:bg-brand-cream hover:border-pink-200 transition-all flex items-center justify-center gap-4 active:scale-95 shadow-sm text-xl disabled:opacity-50 disabled:cursor-not-allowed"
           >
-            <img src="https://www.google.com/favicon.ico" alt="Google" className="w-8 h-8" />
-            Entrar com Google
+            {loading ? (
+              <>
+                <Loader2 size={24} className="animate-spin text-brand-accent" />
+                Aguarde...
+              </>
+            ) : (
+              <>
+                <img src="https://www.google.com/favicon.ico" alt="Google" className="w-8 h-8" />
+                Entrar com Google
+              </>
+            )}
           </button>
 
           <div className="mt-12 pt-10 border-t border-pink-50 grid grid-cols-2 gap-8">
