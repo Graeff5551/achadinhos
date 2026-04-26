@@ -40,10 +40,12 @@ app.post('/api/payment/pix', async (req, res) => {
       });
     }
 
-    // 2. Construção da URL
+    // 2. Construção da URL mais robusta
+    const apiPath = '/v2/payment/create';
     const cleanBase = BASE_URL.replace(/\/+$/, '').replace(/\/v2$/, '');
-    const path = '/v2/payment/create';
-    const url = `${cleanBase}${path}`;
+    const url = cleanBase.startsWith('http') ? `${cleanBase}${apiPath}` : `https://${cleanBase}${apiPath}`;
+    
+    console.log(`[C7] URL Final: ${url}`);
     
     // 3. Payload Minimalista conforme documentação
     const externalId = `PEDIDO_${Date.now()}`;
@@ -72,7 +74,7 @@ app.post('/api/payment/pix', async (req, res) => {
       .digest('hex');
     
     console.log(`[C7] Request Body: ${bodyString}`);
-    console.log(`[C7] Signature Input: ${timestamp}.${bodyString}`);
+    console.log(`[C7] Signature: ${signature}`);
 
     // 5. Requisição para a API C7
     const response = await axios({
@@ -85,7 +87,7 @@ app.post('/api/payment/pix', async (req, res) => {
         'X-C7-Timestamp': timestamp,
         'X-C7-Signature': signature
       },
-      timeout: 15000
+      timeout: 9000 // Limite de 9s para evitar timeout da Vercel (Hobby limit is 10s)
     });
 
     const data = response.data;
