@@ -4,11 +4,19 @@ import axios from 'axios';
 
 export default async function handler(req: VercelRequest, res: VercelResponse) {
   res.setHeader('Access-Control-Allow-Origin', '*');
-  res.setHeader('Access-Control-Allow-Methods', 'POST, OPTIONS');
+  res.setHeader('Access-Control-Allow-Methods', 'GET, POST, OPTIONS');
   res.setHeader('Access-Control-Allow-Headers', 'Content-Type');
 
   if (req.method === 'OPTIONS') return res.status(200).end();
-  if (req.method !== 'POST') return res.status(405).json({ error: 'Método não permitido' });
+
+  // Rota de saúde
+  if (req.method === 'GET') {
+    return res.json({ status: 'ok', time: new Date().toISOString() });
+  }
+
+  if (req.method !== 'POST') {
+    return res.status(405).json({ error: 'Método não permitido' });
+  }
 
   const { amount, payer } = req.body;
 
@@ -34,6 +42,12 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
   const bodyString = JSON.stringify(payload);
   const signature = crypto.createHmac('sha256', SECRET_KEY).update(`${timestamp}.${bodyString}`).digest('hex');
 
+  console.log('[C7] API_KEY presente:', !!API_KEY);
+  console.log('[C7] SECRET_KEY presente:', !!SECRET_KEY);
+  console.log('[C7] Payload:', bodyString);
+  console.log('[C7] Timestamp:', timestamp);
+  console.log('[C7] Signature:', signature);
+
   try {
     const response = await axios.post('https://api.carteirado7.com/v2/payment/create', payload, {
       headers: {
@@ -53,7 +67,8 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
 
   } catch (error: any) {
     const errorData = error.response?.data;
-    console.error('[C7 ERROR]', JSON.stringify(errorData));
+    console.error('[C7 ERROR] Status:', error.response?.status);
+    console.error('[C7 ERROR] Resposta completa:', JSON.stringify(errorData));
     return res.status(error.response?.status || 500).json({
       error: 'Erro na API de Pagamento',
       detail: errorData?.message || errorData?.detail || error.message,
